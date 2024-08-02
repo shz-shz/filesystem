@@ -1,10 +1,11 @@
 package com.shzshz.filesystem.controller;
 
-import com.shzshz.filesystem.pojo.DeleteFiles;
 import com.shzshz.filesystem.pojo.Result;
 import com.shzshz.filesystem.pojo.User;
 import com.shzshz.filesystem.service.UserService;
+import com.shzshz.filesystem.utils.JwtUtils;
 import com.shzshz.filesystem.utils.KeyManager;
+import io.jsonwebtoken.Claims;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,6 +23,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.SecureRandom;
 import java.util.*;
@@ -44,13 +46,17 @@ public class FileController {
 
 
     @PostMapping("/setkey")
-    public Result setKey(@RequestBody User user) {
+    public Result setKey(@RequestBody User user2,@RequestHeader("token") String token) {
+        Claims claims = JwtUtils.parseJWT(token);
+        Integer userId = claims.get("id", Integer.class);
+
+        User user = userService.getById(userId);
         try {
             // 获取私钥
             PrivateKey privateKey = keyManager.getPrivateKey();
 
             // 解密对称密钥
-            byte[] encryptedKey = Base64.getDecoder().decode(user.getUserkey());
+            byte[] encryptedKey = Base64.getDecoder().decode(user2.getUserkey());
             Cipher cipher = Cipher.getInstance("RSA");
             cipher.init(Cipher.DECRYPT_MODE, privateKey);
             byte[] decryptedKey = cipher.doFinal(encryptedKey);
@@ -83,9 +89,12 @@ public class FileController {
     }
 
     @PostMapping("/upload")
-    public Result uploadFile(@RequestParam Integer userId, @RequestParam MultipartFile file, @RequestParam String filename, @RequestParam String type) throws Exception {
+    public Result uploadFile(@RequestParam MultipartFile file, @RequestParam String filename, @RequestParam String type, @RequestParam String hash,@RequestHeader("token") String token) throws Exception {
+        Claims claims = JwtUtils.parseJWT(token);
+        Integer userId = claims.get("id", Integer.class);
+
         User user = userService.getById(userId);
-        if(Objects.equals(user.getRole(), "admin")){
+        if (Objects.equals(user.getRole(), "admin")) {
             String base64EncodedKey = user.getUserkey();
             base64EncodedKey = base64EncodedKey.replaceAll("\\r|\\n", "");
             byte[] decodedHexKey = new String(Base64.getDecoder().decode(base64EncodedKey)).replaceAll("\\r|\\n", "").getBytes("utf-8");
@@ -110,6 +119,16 @@ public class FileController {
             cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec);
             byte[] decryptedFileData = cipher.doFinal(ciphertext);
 
+            // 计算解密后的文件哈希值
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] calculatedHash = digest.digest(decryptedFileData);
+            String calculatedHashHex = bytesToHex(calculatedHash);
+
+            // 比较哈希值
+            if (!calculatedHashHex.equalsIgnoreCase(hash)) {
+                return Result.error("File hash mismatch, upload failed.");
+            }
+
             String uuid = UUID.randomUUID().toString();
             Path uploadPath = Paths.get(uploadDir);
             File uploadDirFile = uploadPath.toFile();
@@ -123,13 +142,16 @@ public class FileController {
                 e.printStackTrace();
                 return Result.error(e.getMessage());
             }
-        }else {
+        } else {
             return Result.error("Access denied: insufficient permissions.");
         }
     }
 
     @PostMapping("/download")
-    public ResponseEntity<byte[]> Download(@RequestParam Integer userId, @RequestParam String filename, @RequestParam String type) throws Exception {
+    public ResponseEntity<byte[]> downloadFile(@RequestParam String filename, @RequestParam String type, @RequestHeader("token") String token) throws Exception {
+        Claims claims = JwtUtils.parseJWT(token);
+        Integer userId = claims.get("id", Integer.class);
+
         User user = userService.getById(userId);
         String base64EncodedKey = user.getUserkey();
         base64EncodedKey = base64EncodedKey.replaceAll("\\r|\\n", "");
@@ -139,6 +161,12 @@ public class FileController {
         // 要加密的文件路径
         Path filePath = Paths.get(uploadDir, filename + "." + type);
         byte[] fileData = Files.readAllBytes(filePath);
+
+        // 计算文件的哈希值
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] fileHash = digest.digest(fileData);
+        String fileHashHex = bytesToHex(fileHash);
+
 
         // 创建随机 IV
         byte[] iv = new byte[16];
@@ -161,17 +189,21 @@ public class FileController {
         headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
         headers.setContentDispositionFormData("attachment", filename + "." + type);
 
+        // 在响应头中添加文件哈希值
+        headers.add("hash", fileHashHex);
         return new ResponseEntity<>(combinedData, headers, HttpStatus.OK);
     }
 
     @DeleteMapping("/files")
-    public Result deleteFiles(@RequestBody DeleteFiles deleteFiles) {
-        User user = userService.getById(deleteFiles.getId());
+    public Result deleteFiles(@RequestBody List<String> filenames,@RequestHeader("token") String token) {
+        Claims claims = JwtUtils.parseJWT(token);
+        Integer userId = claims.get("id", Integer.class);
+        User user = userService.getById(userId);
 
-        if(Objects.equals(user.getRole(), "admin")) {
+        if (Objects.equals(user.getRole(), "admin")) {
             StringBuilder result = new StringBuilder();
 
-            for (String filename : deleteFiles.getFilenames()) {
+            for (String filename : filenames) {
                 File file = new File(uploadDir + "\\" + filename);
                 log.info("file:{}", uploadDir + filename);
                 if (file.exists()) {
@@ -185,7 +217,7 @@ public class FileController {
                 }
             }
             return Result.success(result.toString());
-        }else {
+        } else {
             return Result.error("Access denied: insufficient permissions.");
         }
     }
@@ -197,5 +229,18 @@ public class FileController {
             data[i / 2] = (byte) ((Character.digit(s.charAt(i), 16) << 4) + Character.digit(s.charAt(i + 1), 16));
         }
         return data;
+    }
+
+    // 辅助方法：将字节数组转换为十六进制字符串
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder hexString = new StringBuilder();
+        for (byte b : bytes) {
+            String hex = Integer.toHexString(0xff & b);
+            if (hex.length() == 1) {
+                hexString.append('0');
+            }
+            hexString.append(hex);
+        }
+        return hexString.toString();
     }
 }

@@ -9,13 +9,13 @@ import java.util.Map;
 
 public class JwtUtils {
 
-    private static String signKey = "fit5163";
-    private static Long expire = 43200000L;
+    private static final String signKey = "fit5163";
+    private static final Long expire = 43200000L;
 
     /**
      * 生成JWT令牌
      * @param claims JWT第二部分负载 payload 中存储的内容
-     * @return
+     * @return jwt
      */
     public static String generateJwt(Map<String, Object> claims){
         String jwt = Jwts.builder()

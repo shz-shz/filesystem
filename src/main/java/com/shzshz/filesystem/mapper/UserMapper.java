@@ -21,4 +21,7 @@ public interface UserMapper {
 
     @Update("UPDATE user SET userkey = #{userkey} WHERE id = #{id}")
     void setKey(User user);
+
+    @Select("SELECT * FROM user WHERE email = #{email}")
+    List<User> getByEmail(String email);
 }

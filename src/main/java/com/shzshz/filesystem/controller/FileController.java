@@ -20,6 +20,7 @@ import javax.crypto.Cipher;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -33,6 +34,7 @@ import javax.crypto.spec.SecretKeySpec;
 import javax.crypto.spec.IvParameterSpec;
 
 @Slf4j
+@CrossOrigin(origins = "*")
 @RestController
 public class FileController {
     @Autowired
@@ -46,7 +48,7 @@ public class FileController {
 
 
     @PostMapping("/setkey")
-    public Result setKey(@RequestBody User user2,@RequestHeader("token") String token) {
+    public Result setKey(@RequestBody User user2, @RequestHeader("token") String token) {
         Claims claims = JwtUtils.parseJWT(token);
         Integer userId = claims.get("id", Integer.class);
 
@@ -89,7 +91,7 @@ public class FileController {
     }
 
     @PostMapping("/upload")
-    public Result uploadFile(@RequestParam MultipartFile file, @RequestParam String filename, @RequestParam String type, @RequestParam String hash,@RequestHeader("token") String token) throws Exception {
+    public Result uploadFile(@RequestParam String file, @RequestParam String filename, @RequestParam String type, @RequestParam String hash, @RequestParam String hexiv, @RequestHeader("token") String token) throws Exception {
         Claims claims = JwtUtils.parseJWT(token);
         Integer userId = claims.get("id", Integer.class);
 
@@ -97,20 +99,24 @@ public class FileController {
         if (Objects.equals(user.getRole(), "admin")) {
             String base64EncodedKey = user.getUserkey();
             base64EncodedKey = base64EncodedKey.replaceAll("\\r|\\n", "");
-            byte[] decodedHexKey = new String(Base64.getDecoder().decode(base64EncodedKey)).replaceAll("\\r|\\n", "").getBytes("utf-8");
+            byte[] decodedHexKey = new String(Base64.getDecoder().decode(base64EncodedKey)).replaceAll("\\r|\\n", "").getBytes(StandardCharsets.UTF_8);
             byte[] decodedKey = hexStringToByteArray(new String(decodedHexKey));
-            log.info("decodedKey:{}", decodedKey.length);
+            log.info("decodedKey:{}", new String(decodedHexKey));
 
             // 获取加密文件数据
-            byte[] encryptedFileData = file.getBytes();
+            //byte[] encryptedFileData = file.getBytes();
+            byte[] encryptedFileData = Base64.getDecoder().decode(file);
 
             // 提取 IV
-            byte[] iv = new byte[16];
-            System.arraycopy(encryptedFileData, 0, iv, 0, 16);
+            //byte[] iv = Base64.getDecoder().decode(base64iv);
+            /*byte[] iv = new byte[16];
+            System.arraycopy(encryptedFileData, 0, iv, 0, 16);*/
+            byte[] iv = hexStringToByteArray(hexiv);
 
             // 提取密文
-            byte[] ciphertext = new byte[encryptedFileData.length - 16];
-            System.arraycopy(encryptedFileData, 16, ciphertext, 0, ciphertext.length);
+            /*byte[] ciphertext = new byte[encryptedFileData.length - 16];
+            System.arraycopy(encryptedFileData, 16, ciphertext, 0, ciphertext.length);*/
+            byte[] ciphertext = encryptedFileData;
 
             // 解密文件内容
             SecretKeySpec keySpec = new SecretKeySpec(decodedKey, "AES");
@@ -195,7 +201,7 @@ public class FileController {
     }
 
     @DeleteMapping("/files")
-    public Result deleteFiles(@RequestBody List<String> filenames,@RequestHeader("token") String token) {
+    public Result deleteFiles(@RequestBody List<String> filenames, @RequestHeader("token") String token) {
         Claims claims = JwtUtils.parseJWT(token);
         Integer userId = claims.get("id", Integer.class);
         User user = userService.getById(userId);

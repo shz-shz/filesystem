@@ -6,19 +6,31 @@ import com.shzshz.filesystem.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 @Service
 public class UserServiceImpl implements UserService {
     @Autowired
     private UserMapper userMapper;
 
     @Override
-    public void register(User user) {
-        userMapper.add(user);
+    public String register(User user) {
+        if(getByEmail(user.getEmail()) != null || !getByEmail(user.getEmail()).isEmpty()){
+            return "An email address with the same name has already been registered.";
+        }else {
+            userMapper.add(user);
+            return "OK";
+        }
     }
 
     @Override
     public User getById(Integer id) {
         return userMapper.getById(id);
+    }
+
+    @Override
+    public List<User> getByEmail(String email) {
+        return userMapper.getByEmail(email);
     }
 
     @Override

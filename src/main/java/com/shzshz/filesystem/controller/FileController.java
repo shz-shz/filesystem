@@ -30,7 +30,7 @@ import java.util.stream.Stream;
 import javax.crypto.spec.SecretKeySpec;
 import javax.crypto.spec.IvParameterSpec;
 
-@Slf4j //加上此注解，自动创建日志对象(变量名为log)，便于类内直接调用
+@Slf4j
 @RestController
 public class FileController {
     @Autowired

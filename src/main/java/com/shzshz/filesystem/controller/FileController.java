@@ -1,5 +1,6 @@
 package com.shzshz.filesystem.controller;
 
+import com.shzshz.filesystem.pojo.DownloadResult;
 import com.shzshz.filesystem.pojo.Result;
 import com.shzshz.filesystem.pojo.User;
 import com.shzshz.filesystem.service.UserService;
@@ -10,8 +11,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -91,8 +90,9 @@ public class FileController {
     }
 
     @PostMapping("/upload")
-    public Result uploadFile(@RequestParam String file, @RequestParam String filename, @RequestParam String type, @RequestParam String hash, @RequestParam String hexiv, @RequestHeader("token") String token) throws Exception {
-        Claims claims = JwtUtils.parseJWT(token);
+    //public Result uploadFile(@RequestParam String file, @RequestParam String filename, @RequestParam String type, @RequestParam String hash, @RequestParam String hexiv, @RequestHeader("token") String token) throws Exception {
+    public Result uploadFile(@RequestParam MultipartFile file, @RequestParam String filename, @RequestParam String type, @RequestParam String hash, @RequestParam String hexiv, @RequestHeader("token") String token) throws Exception {
+    Claims claims = JwtUtils.parseJWT(token);
         Integer userId = claims.get("id", Integer.class);
 
         User user = userService.getById(userId);
@@ -104,8 +104,8 @@ public class FileController {
             log.info("decodedKey:{}", new String(decodedHexKey));
 
             // 获取加密文件数据
-            //byte[] encryptedFileData = file.getBytes();
-            byte[] encryptedFileData = Base64.getDecoder().decode(file);
+            byte[] encryptedFileData = file.getBytes();
+            //byte[] encryptedFileData = Base64.getDecoder().decode(file);
 
             // 提取 IV
             //byte[] iv = Base64.getDecoder().decode(base64iv);
@@ -154,7 +154,8 @@ public class FileController {
     }
 
     @PostMapping("/download")
-    public ResponseEntity<byte[]> downloadFile(@RequestParam String filename, @RequestParam String type, @RequestHeader("token") String token) throws Exception {
+    //public ResponseEntity<byte[]> downloadFile(@RequestParam String filename, @RequestParam String type, @RequestHeader("token") String token) throws Exception {
+    public Result downloadFile(@RequestParam String filename, @RequestParam String type, @RequestHeader("token") String token) throws Exception {
         Claims claims = JwtUtils.parseJWT(token);
         Integer userId = claims.get("id", Integer.class);
 
@@ -173,11 +174,13 @@ public class FileController {
         byte[] fileHash = digest.digest(fileData);
         String fileHashHex = bytesToHex(fileHash);
 
+        log.info("fileHashHex:{}", fileHashHex);
 
         // 创建随机 IV
         byte[] iv = new byte[16];
         SecureRandom random = new SecureRandom();
         random.nextBytes(iv);
+        log.info("DOWNLOAD IV:{}", bytesToHex(iv));
 
         // 用对称密钥和 IV 加密文件内容
         SecretKeySpec keySpec = new SecretKeySpec(decodedKey, "AES");
@@ -191,16 +194,21 @@ public class FileController {
         System.arraycopy(iv, 0, combinedData, 0, iv.length);
         System.arraycopy(encryptedFileData, 0, combinedData, iv.length, encryptedFileData.length);
 
+        String base64combinedData = Base64.getEncoder().encodeToString(combinedData);
+
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
         headers.setContentDispositionFormData("attachment", filename + "." + type);
 
         // 在响应头中添加文件哈希值
         headers.add("hash", fileHashHex);
-        return new ResponseEntity<>(combinedData, headers, HttpStatus.OK);
+        //return new ResponseEntity<>(combinedData, headers, HttpStatus.OK);
+
+        return Result.success(new DownloadResult(fileHashHex,base64combinedData));
     }
 
-    @DeleteMapping("/files")
+    @PostMapping("/deletefiles")
     public Result deleteFiles(@RequestBody List<String> filenames, @RequestHeader("token") String token) {
         Claims claims = JwtUtils.parseJWT(token);
         Integer userId = claims.get("id", Integer.class);
